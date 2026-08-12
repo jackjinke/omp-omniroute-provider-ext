@@ -1,6 +1,6 @@
-# omniroute-pi-adapter-ext
+# omp-omniroute-provider-ext
 
-OmniRoute adapter for Pi 0.80.10+ and OMP 17.0.5+.
+OmniRoute provider extension for OMP 17.0.5+. Pi 0.80.10+ is also supported.
 
 ## Supported
 
@@ -15,16 +15,16 @@ Shared OmniRoute logic lives in `src/shared.ts`. Host-specific behavior lives in
 
 ## Install
 
-### Pi
-
-```bash
-pi install git:github.com/jackjinke/omniroute-pi-adapter-ext
-```
-
 ### OMP
 
 ```bash
-omp install git:github.com/jackjinke/omniroute-pi-adapter-ext
+omp install git:github.com/jackjinke/omp-omniroute-provider-ext
+```
+
+### Pi
+
+```bash
+pi install git:github.com/jackjinke/omp-omniroute-provider-ext
 ```
 
 Restart Pi or OMP after installation. The package manifest selects the correct host adapter automatically.
@@ -32,8 +32,8 @@ Restart Pi or OMP after installation. The package manifest selects the correct h
 For local development instead:
 
 ```bash
-pi -e /absolute/path/to/omniroute-pi-adapter-ext/src/pi-entry.ts
-omp -e /absolute/path/to/omniroute-pi-adapter-ext/src/index.ts
+omp -e /absolute/path/to/omp-omniroute-provider-ext/src/index.ts
+pi -e /absolute/path/to/omp-omniroute-provider-ext/src/pi-entry.ts
 ```
 
 ## Use
@@ -47,8 +47,8 @@ export OMNIROUTE_BASE_URL='http://your-omniroute-host:20128'
 Choose any entry returned by your OmniRoute instance:
 
 ```bash
-pi --model omniroute/<model-id>
 omp --model omniroute/<model-id>
+pi --model omniroute/<model-id>
 ```
 
 For persistent configuration, set the discovered `omniroute/<model-id>` in the host's normal model settings. Do not add a hardcoded OmniRoute model list.
