@@ -37,6 +37,8 @@ interface OmpProviderModel extends OmniRouteModel {
     enabled: true;
     api: "openai-codex-responses";
     v2StreamingEnabled: true;
+    endpoint: string;
+    v2Endpoint: string;
   };
 }
 
@@ -106,19 +108,25 @@ interface OmpProviderConfig {
 
 // pi-ai resolves an OpenAI Codex base URL to ChatGPT's `/backend-api/codex/responses`
 // shape, but OmniRoute serves the Codex bridge at its OpenAI `/v1/responses` path.
+// Keep `/codex/responses` out of both HTTP fetch and the WebSocket-upgrade URL
+// pi-ai derives from the same request endpoint.
 function createOmpCodexRouteStream(): typeof streamOpenAICodexResponses {
+  const stripCodexPrefix = (value: string): string => value.replace(/\/codex\/responses$/, "/responses");
   return (model, context, options) => {
+    const codexModel = {
+      ...model,
+      baseUrl: stripCodexPrefix(model.baseUrl),
+    };
     const callerFetch = options?.fetch ?? fetch;
     const streamOptions = options === undefined ? options : {
       ...options,
       fetch: (input: string | URL | Request, init?: RequestInit) => {
-        const url = String(typeof input === "string" || input instanceof URL ? input : input.url)
-          .replace(/\/codex\/responses$/, "/responses");
+        const url = stripCodexPrefix(String(typeof input === "string" || input instanceof URL ? input : input.url));
         return callerFetch(url, init);
       },
     };
     return deferredStream(loadPiAiStreams().then(streams => streams.streamOpenAICodexResponses(
-      model as never,
+      codexModel as never,
       context,
       streamOptions as OpenAICodexResponsesOptions,
     )));
@@ -282,17 +290,21 @@ export async function activateOmp(
   const comboIds = new Set(models.filter(model => model.isCombo).map(model => model.id));
   const codexModelIds = new Set(models.filter(model => model.isCodex).map(model => model.id));
   const modelNames = new Map(models.map(model => [model.id, model.name]));
-  const ompModels: OmpProviderModel[] = models.map(model => model.isCodex
-    ? {
-        ...model,
+  const ompModels: OmpProviderModel[] = models.map(model => {
+    if (!model.isCodex) return { ...model };
+    const responsesEndpoint = `${config.baseUrl}/v1/responses`;
+    return {
+      ...model,
+      api: "openai-codex-responses",
+      remoteCompaction: {
+        enabled: true,
         api: "openai-codex-responses",
-        remoteCompaction: {
-          enabled: true,
-          api: "openai-codex-responses",
-          v2StreamingEnabled: true,
-        },
-      }
-    : { ...model });
+        v2StreamingEnabled: true,
+        endpoint: `${responsesEndpoint}/compact`,
+        v2Endpoint: responsesEndpoint,
+      },
+    };
+  });
   api.on("before_provider_request", event => withReasoningEffort(
     event.payload,
     modelIds,

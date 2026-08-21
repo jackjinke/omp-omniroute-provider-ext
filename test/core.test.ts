@@ -18,6 +18,8 @@ interface RegisteredProvider {
       enabled?: boolean;
       api?: string;
       v2StreamingEnabled?: boolean;
+      endpoint?: string;
+      v2Endpoint?: string;
     };
     compat?: Record<string, unknown>;
   }>;
@@ -410,6 +412,20 @@ describe("OMP adapter", () => {
 
     expect(host.provider?.config.stream).toBeDefined();
     expect(host.provider?.config.streamSimple).toBeDefined();
+  });
+  test("registers OmniRoute Responses endpoints for Codex compaction", async () => {
+    const host = new FakeOmpHost();
+    await activateOmp(host, isolatedEnv({ OMNIROUTE_BASE_URL: "http://router.test" }), async () => Response.json({
+      data: [{ id: "gpt-5.5", owned_by: "codex" }],
+    }));
+
+    expect(host.provider?.config.models[0]?.remoteCompaction).toEqual({
+      enabled: true,
+      api: "openai-codex-responses",
+      v2StreamingEnabled: true,
+      endpoint: "http://router.test/v1/responses/compact",
+      v2Endpoint: "http://router.test/v1/responses",
+    });
   });
   test("reuses main discovery when a subagent activation cannot reach OmniRoute", async () => {
     const environment = isolatedEnv({ OMNIROUTE_BASE_URL: "http://router.test" });
