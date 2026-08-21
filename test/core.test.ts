@@ -14,6 +14,7 @@ interface RegisteredProvider {
     id: string;
     name?: string;
     api?: string;
+    baseUrl?: string;
     remoteCompaction?: {
       enabled?: boolean;
       api?: string;
@@ -23,7 +24,6 @@ interface RegisteredProvider {
     };
     compat?: Record<string, unknown>;
   }>;
-  stream?: (...args: any[]) => AsyncIterable<unknown>;
   streamSimple?: (...args: any[]) => AsyncIterable<unknown>;
 }
 
@@ -381,37 +381,19 @@ describe("OMP adapter", () => {
     expect(host.provider?.config.models[1]?.api).toBeUndefined();
     expect(host.provider?.config.models[1]?.remoteCompaction).toBeUndefined();
   });
-  test("sends native Codex streams to OmniRoute's Responses endpoint", async () => {
+  test("parks pi-ai's Codex URL suffix in the query for direct Codex models", async () => {
     const host = new FakeOmpHost();
-    await activateOmp(host, isolatedEnv(), async () => Response.json({
+    await activateOmp(host, isolatedEnv({ OMNIROUTE_BASE_URL: "http://router.test" }), async () => Response.json({
       data: [{ id: "gpt-5.5", name: "GPT-5.5 Codex", owned_by: "codex" }],
     }));
 
-    const model = {
-      ...host.provider!.config.models[0],
-      provider: "omniroute",
-      baseUrl: "http://router.test/v1",
-    } as never;
-    const requestedUrls: string[] = [];
-    const events = host.provider!.config.stream!(model, { messages: [] } as never, {
-      apiKey: "secret",
-      fetch: async (input: string | URL | Request) => {
-        requestedUrls.push(String(input));
-        return new Response("data: [DONE]\n\n", { headers: { "Content-Type": "text/event-stream" } });
-      },
-    });
-    for await (const _event of events) { /* consume the provider stream */ }
-
-    expect(requestedUrls).toEqual(["http://router.test/v1/responses"]);
-  });
-  test("keeps direct Codex requests on the native stream hook", async () => {
-    const host = new FakeOmpHost();
-    await activateOmp(host, isolatedEnv(), async () => Response.json({
-      data: [{ id: "gpt-5.5", owned_by: "codex" }],
-    }));
-
-    expect(host.provider?.config.stream).toBeDefined();
-    expect(host.provider?.config.streamSimple).toBeDefined();
+    const model = host.provider!.config.models[0];
+    expect(model?.api).toBe("openai-codex-responses");
+    expect(model?.baseUrl).toBe("http://router.test/v1/responses?omniroute-codex=");
+    // pi-ai appends `/codex/responses` to any non-Codex base URL; the `?`
+    // terminator parks that suffix in the query so the path stays
+    // OmniRoute's `/v1/responses` for HTTP fetch and the derived WS upgrade.
+    expect(new URL(`${model!.baseUrl}/codex/responses`).pathname).toBe("/v1/responses");
   });
   test("registers OmniRoute Responses endpoints for Codex compaction", async () => {
     const host = new FakeOmpHost();

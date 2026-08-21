@@ -1,8 +1,6 @@
 import type {
   AssistantMessageEventStream,
   OpenAICompletionsOptions,
-  OpenAICodexResponsesOptions,
-  streamOpenAICodexResponses,
   streamOpenAICompletions,
   streamOpenAIResponses,
 } from "@oh-my-pi/pi-ai";
@@ -33,6 +31,7 @@ interface OmpRoutableModel {
 
 interface OmpProviderModel extends OmniRouteModel {
   api?: "openai-codex-responses";
+  baseUrl?: string;
   remoteCompaction?: {
     enabled: true;
     api: "openai-codex-responses";
@@ -67,7 +66,6 @@ const PROVIDER_API_BY_FORMAT = {
 } as const satisfies Record<OmniRouteApiFormat, string>;
 
 interface PiAiStreams {
-  streamOpenAICodexResponses: typeof streamOpenAICodexResponses;
   streamOpenAICompletions: typeof streamOpenAICompletions;
   streamOpenAIResponses: typeof streamOpenAIResponses;
 }
@@ -101,36 +99,19 @@ interface OmpProviderConfig {
   baseUrl: string;
   apiKey: string;
   api: (typeof HOST_API_BY_FORMAT)[OmniRouteApiFormat];
-  stream?: typeof streamOpenAICodexResponses;
   streamSimple?: typeof streamOpenAICompletions;
   models: OmpProviderModel[];
 }
 
-// pi-ai resolves an OpenAI Codex base URL to ChatGPT's `/backend-api/codex/responses`
-// shape, but OmniRoute serves the Codex bridge at its OpenAI `/v1/responses` path.
-// Keep `/codex/responses` out of both HTTP fetch and the WebSocket-upgrade URL
-// pi-ai derives from the same request endpoint.
-function createOmpCodexRouteStream(): typeof streamOpenAICodexResponses {
-  const stripCodexPrefix = (value: string): string => value.replace(/\/codex\/responses$/, "/responses");
-  return (model, context, options) => {
-    const codexModel = {
-      ...model,
-      baseUrl: stripCodexPrefix(model.baseUrl),
-    };
-    const callerFetch = options?.fetch ?? fetch;
-    const streamOptions = options === undefined ? options : {
-      ...options,
-      fetch: (input: string | URL | Request, init?: RequestInit) => {
-        const url = stripCodexPrefix(String(typeof input === "string" || input instanceof URL ? input : input.url));
-        return callerFetch(url, init);
-      },
-    };
-    return deferredStream(loadPiAiStreams().then(streams => streams.streamOpenAICodexResponses(
-      codexModel as never,
-      context,
-      streamOptions as OpenAICodexResponsesOptions,
-    )));
-  };
+// OMP's registerProvider only consumes `streamSimple`, so Codex models keep the
+// built-in `openai-codex-responses` api and its pi-ai transport. That transport
+// unconditionally appends `/codex/responses` to any non-Codex base URL, but
+// OmniRoute serves the bridge at its OpenAI `/v1/responses` path. The suffix is
+// pure string concatenation, so a `?` terminator parks it in the query string —
+// the HTTP path (and the WebSocket upgrade path derived from the same URL)
+// stays `/v1/responses`, and compaction uses the explicit endpoint overrides.
+function ompCodexBaseUrl(baseUrl: string): string {
+  return `${baseUrl}/v1/responses?omniroute-codex=`;
 }
 
 /**
@@ -296,6 +277,7 @@ export async function activateOmp(
     return {
       ...model,
       api: "openai-codex-responses",
+      baseUrl: ompCodexBaseUrl(config.baseUrl),
       remoteCompaction: {
         enabled: true,
         api: "openai-codex-responses",
@@ -318,7 +300,6 @@ export async function activateOmp(
     apiKey: config.apiKey,
     api: HOST_API_BY_FORMAT[config.format],
     streamSimple: createOmpRouteStream(api, modelNames, comboIds, config.format),
-    stream: createOmpCodexRouteStream(),
     models: ompModels,
   });
 }
