@@ -1,6 +1,8 @@
 import type {
   AssistantMessageEventStream,
   OpenAICompletionsOptions,
+  OpenAICodexResponsesOptions,
+  streamOpenAICodexResponses,
   streamOpenAICompletions,
   streamOpenAIResponses,
 } from "@oh-my-pi/pi-ai";
@@ -63,6 +65,7 @@ const PROVIDER_API_BY_FORMAT = {
 } as const satisfies Record<OmniRouteApiFormat, string>;
 
 interface PiAiStreams {
+  streamOpenAICodexResponses: typeof streamOpenAICodexResponses;
   streamOpenAICompletions: typeof streamOpenAICompletions;
   streamOpenAIResponses: typeof streamOpenAIResponses;
 }
@@ -96,8 +99,30 @@ interface OmpProviderConfig {
   baseUrl: string;
   apiKey: string;
   api: (typeof HOST_API_BY_FORMAT)[OmniRouteApiFormat];
+  stream?: typeof streamOpenAICodexResponses;
   streamSimple?: typeof streamOpenAICompletions;
   models: OmpProviderModel[];
+}
+
+// pi-ai resolves an OpenAI Codex base URL to ChatGPT's `/backend-api/codex/responses`
+// shape, but OmniRoute serves the Codex bridge at its OpenAI `/v1/responses` path.
+function createOmpCodexRouteStream(): typeof streamOpenAICodexResponses {
+  return (model, context, options) => {
+    const callerFetch = options?.fetch ?? fetch;
+    const streamOptions = options === undefined ? options : {
+      ...options,
+      fetch: (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(typeof input === "string" || input instanceof URL ? input : input.url)
+          .replace(/\/codex\/responses$/, "/responses");
+        return callerFetch(url, init);
+      },
+    };
+    return deferredStream(loadPiAiStreams().then(streams => streams.streamOpenAICodexResponses(
+      model as never,
+      context,
+      streamOptions as OpenAICodexResponsesOptions,
+    )));
+  };
 }
 
 /**
@@ -281,6 +306,7 @@ export async function activateOmp(
     apiKey: config.apiKey,
     api: HOST_API_BY_FORMAT[config.format],
     streamSimple: createOmpRouteStream(api, modelNames, comboIds, config.format),
+    stream: createOmpCodexRouteStream(),
     models: ompModels,
   });
 }
