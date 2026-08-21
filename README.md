@@ -22,6 +22,13 @@ Shared OmniRoute logic lives in `src/shared.ts`. Host-specific behavior lives in
 omp install git:github.com/jackjinke/omp-omniroute-provider-ext
 ```
 
+If this was previously installed from the renamed `omniroute-pi-adapter-ext` repository URL, remove the existing package before switching sources:
+
+```bash
+omp plugin uninstall omp-omniroute-provider-ext
+omp install git:github.com/jackjinke/omp-omniroute-provider-ext
+```
+
 ### Pi
 
 ```bash
