@@ -29,6 +29,15 @@ interface OmpRoutableModel {
   compat?: Record<string, unknown>;
 }
 
+interface OmpProviderModel extends OmniRouteModel {
+  api?: "openai-codex-responses";
+  remoteCompaction?: {
+    enabled: true;
+    api: "openai-codex-responses";
+    v2StreamingEnabled: true;
+  };
+}
+
 interface OmpContext {
   model?: OmpRoutableModel;
   hasUI: boolean;
@@ -88,7 +97,7 @@ interface OmpProviderConfig {
   apiKey: string;
   api: (typeof HOST_API_BY_FORMAT)[OmniRouteApiFormat];
   streamSimple?: typeof streamOpenAICompletions;
-  models: OmniRouteModel[];
+  models: OmpProviderModel[];
 }
 
 /**
@@ -98,13 +107,13 @@ interface OmpProviderConfig {
  */
 function createOmpRouteStream(
   api: OmpExtensionAPI,
-  modelIds: Set<string>,
+  modelNames: Map<string, string>,
   comboIds: Set<string>,
   format: OmniRouteApiFormat,
 ): typeof streamOpenAICompletions {
   const routeNames = new Map<string, string>();
   const bindRouteName = (model: OmpRoutableModel | undefined): string | undefined => {
-    if (!model || !modelIds.has(model.id)) return undefined;
+    if (!model || !modelNames.has(model.id)) return undefined;
     // pi-catalog cannot resolve compatibility defaults for extension-defined API
     // identifiers, while provider paths still require an object.
     model.compat ??= {};
@@ -112,7 +121,7 @@ function createOmpRouteStream(
     Object.defineProperty(model, "name", {
       configurable: true,
       enumerable: true,
-      get: () => routeNames.get(modelId) ?? modelId,
+      get: () => routeNames.get(modelId) ?? modelNames.get(modelId) ?? modelId,
       set: () => {},
     });
     return modelId;
@@ -133,7 +142,7 @@ function createOmpRouteStream(
     // route, so its status line must stay plain even if the router renames it.
     const comboModel = requestedModel && comboIds.has(requestedModel) ? requestedModel : undefined;
     const updateRouteName = (routedModel: string) => {
-      routeNames.set(comboModel!, resolvedRouteStatus(comboModel!, routedModel));
+      routeNames.set(comboModel!, resolvedRouteStatus(modelNames.get(comboModel!) ?? comboModel!, routedModel));
     };
     const simpleOptions = options as OpenAICompletionsOptions & {
       reasoning?: ReasoningEffort;
@@ -184,13 +193,15 @@ function createOmpRouteStream(
 function withReasoningEffort(
   payload: unknown,
   modelIds: Set<string>,
+  codexModelIds: Set<string>,
   reasoning: ReasoningEffort | undefined,
   format: OmniRouteApiFormat,
 ): unknown {
   if (!reasoning || !payload || typeof payload !== "object") return payload;
   const body = payload as Record<string, unknown>;
   if (typeof body.model !== "string" || !modelIds.has(body.model)) return payload;
-  if (format === "responses") {
+  const requestFormat = codexModelIds.has(body.model) ? "responses" : format;
+  if (requestFormat === "responses") {
     if (body.reasoning_effort !== undefined) return payload;
     if (body.reasoning === undefined) {
       body.reasoning = { effort: reasoning };
@@ -244,10 +255,23 @@ export async function activateOmp(
   const { config, catalog: { models } } = discovery;
   const modelIds = new Set(models.map(model => model.id));
   const comboIds = new Set(models.filter(model => model.isCombo).map(model => model.id));
-  const ompModels = models.map(model => ({ ...model }));
+  const codexModelIds = new Set(models.filter(model => model.isCodex).map(model => model.id));
+  const modelNames = new Map(models.map(model => [model.id, model.name]));
+  const ompModels: OmpProviderModel[] = models.map(model => model.isCodex
+    ? {
+        ...model,
+        api: "openai-codex-responses",
+        remoteCompaction: {
+          enabled: true,
+          api: "openai-codex-responses",
+          v2StreamingEnabled: true,
+        },
+      }
+    : { ...model });
   api.on("before_provider_request", event => withReasoningEffort(
     event.payload,
     modelIds,
+    codexModelIds,
     api.getThinkingLevel(),
     config.format,
   ));
@@ -256,7 +280,7 @@ export async function activateOmp(
     baseUrl: `${config.baseUrl}/v1`,
     apiKey: config.apiKey,
     api: HOST_API_BY_FORMAT[config.format],
-    streamSimple: createOmpRouteStream(api, modelIds, comboIds, config.format),
+    streamSimple: createOmpRouteStream(api, modelNames, comboIds, config.format),
     models: ompModels,
   });
 }

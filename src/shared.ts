@@ -11,6 +11,8 @@ export interface OmniRouteModel {
   name: string;
   /** Explicit `/v1/models` ownership; model-id prefixes are user-defined and unreliable. */
   isCombo: boolean;
+  /** Direct Codex ownership enables OMP's native Codex transport features. */
+  isCodex: boolean;
   reasoning: boolean;
   thinking?: { mode: "effort"; efforts: string[]; effortMap: Record<string, string> };
   thinkingLevelMap?: Record<string, string | null>;
@@ -183,8 +185,12 @@ export function normalizeCatalog(
       ? entry.owned_by.trim().toLowerCase()
       : undefined;
     const isCombo = owner === "combo";
+    const isCodex = owner === "codex";
     if (!("id" in entry) || typeof entry.id !== "string" || !entry.id.trim()) continue;
     const id = entry.id.trim();
+    const name = "name" in entry && typeof entry.name === "string" && entry.name.trim()
+      ? entry.name.trim()
+      : id;
     const capabilities = "capabilities" in entry && entry.capabilities && typeof entry.capabilities === "object"
       ? entry.capabilities
       : {};
@@ -193,8 +199,9 @@ export function normalizeCatalog(
     const structuredOutput = readStructuredOutput(capabilities);
     const model: OmniRouteModel = {
       id,
-      name: id,
+      name,
       isCombo,
+      isCodex,
       reasoning,
       input: readInputModalities(entry, capabilities),
       supportsTools: !("tool_calling" in capabilities) || capabilities.tool_calling !== false,

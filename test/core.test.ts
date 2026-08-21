@@ -13,6 +13,12 @@ interface RegisteredProvider {
   models: Array<{
     id: string;
     name?: string;
+    api?: string;
+    remoteCompaction?: {
+      enabled?: boolean;
+      api?: string;
+      v2StreamingEnabled?: boolean;
+    };
     compat?: Record<string, unknown>;
   }>;
   streamSimple?: (...args: any[]) => AsyncIterable<unknown>;
@@ -137,6 +143,17 @@ describe("shared catalog logic", () => {
       maxTokens: 64000,
       compat: { supportsReasoningEffort: true },
     });
+  });
+
+  test("preserves catalog model names with an id fallback", () => {
+    const result = normalizeCatalog({
+      data: [
+        { id: "gpt-5.5", name: "GPT-5.5 Codex", owned_by: "codex" },
+        { id: "unnamed/model", name: "  " },
+      ],
+    }, { effortOverrides: {} });
+
+    expect(result.models.map(model => model.name)).toEqual(["GPT-5.5 Codex", "unnamed/model"]);
   });
 
   test("supports minimal when discovered but omits it from fallback defaults", () => {
@@ -327,18 +344,39 @@ describe("OMP adapter", () => {
     expect(host.provider?.config.api).toBe("omniroute-openai-completions");
     expect(host.provider?.config.models.map(model => model.id)).toEqual(["any/model"]);
   });
-  test("does not advertise remote compaction for Responses models", async () => {
-    const agentDir = mkdtempSync(join(tmpdir(), "omniroute-omp-no-remote-compaction-"));
-    writeFileSync(join(agentDir, "omniroute.yml"), "format: responses\n");
+  test("keeps the catalog model name immediately after startup binding", async () => {
     const host = new FakeOmpHost();
-    await activateOmp(
-      host,
-      isolatedEnv({ PI_CODING_AGENT_DIR: agentDir }),
-      async () => Response.json({ data: [{ id: "cx/model", owned_by: "codex" }] }),
-    );
+    await activateOmp(host, isolatedEnv(), async () => Response.json({
+      data: [{ id: "combo/coding", name: "Coding Router", owned_by: "combo" }],
+    }));
 
-    expect(host.provider?.config.api).toBe("omniroute-openai-responses");
-    expect("remoteCompaction" in host.provider!.config.models[0]!).toBe(false);
+    expect(host.provider?.config.models[0]?.name).toBe("Coding Router");
+    const context = fakeContext({ ...host.provider!.config.models[0]!, name: host.provider!.config.models[0]!.name! });
+    host.emit("session_start", context);
+    expect(context.model?.name).toBe("Coding Router");
+  });
+  test("uses native Codex transport and remote compaction only for direct Codex models", async () => {
+    const host = new FakeOmpHost();
+    await activateOmp(host, isolatedEnv(), async () => Response.json({
+      data: [
+        { id: "gpt-5.5", name: "GPT-5.5 Codex", owned_by: "codex" },
+        { id: "combo/coding", name: "Coding Router", owned_by: "combo" },
+      ],
+    }));
+
+    expect(host.provider?.config.models[0]).toMatchObject({
+      id: "gpt-5.5",
+      name: "GPT-5.5 Codex",
+      api: "openai-codex-responses",
+      remoteCompaction: {
+        enabled: true,
+        api: "openai-codex-responses",
+        v2StreamingEnabled: true,
+      },
+    });
+    expect(host.provider?.config.models[1]).toMatchObject({ id: "combo/coding", name: "Coding Router" });
+    expect(host.provider?.config.models[1]?.api).toBeUndefined();
+    expect(host.provider?.config.models[1]?.remoteCompaction).toBeUndefined();
   });
   test("reuses main discovery when a subagent activation cannot reach OmniRoute", async () => {
     const environment = isolatedEnv({ OMNIROUTE_BASE_URL: "http://router.test" });
@@ -387,7 +425,7 @@ describe("OMP adapter", () => {
   test("updates combo routing after resuming an older session", async () => {
     const host = new FakeOmpHost();
     await activateOmp(host, isolatedEnv(), async () => Response.json({
-      data: [{ id: "combo/coding", owned_by: "combo" }],
+      data: [{ id: "combo/coding", name: "Coding Router", owned_by: "combo" }],
     }));
     const context = fakeContext({ id: "combo/coding", name: "combo/coding" });
     host.emit("session_start", context);
@@ -410,7 +448,7 @@ describe("OMP adapter", () => {
     });
     for await (const _event of events) { /* consume the provider stream */ }
 
-    expect(context.model!.name).toBe("combo/coding▸vendor/resumed-route");
+    expect(context.model!.name).toBe("Coding Router▸vendor/resumed-route");
   });
 
   test("keeps a resolved combo without later routing metadata and accepts a new resolution", async () => {
