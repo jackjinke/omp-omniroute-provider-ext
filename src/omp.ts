@@ -36,7 +36,10 @@ interface OmpProviderModel extends OmniRouteModel {
     enabled: true;
     api: "openai-codex-responses";
     v2StreamingEnabled: true;
-    endpoint: string;
+    // Optional V1 endpoint. Intentionally unset for OmniRoute Codex: the
+    // ChatGPT `/responses/compact` route returns a generate response, not a
+    // compaction item, so only V2 is advertised.
+    endpoint?: string;
     v2Endpoint: string;
   };
 }
@@ -109,7 +112,7 @@ interface OmpProviderConfig {
 // OmniRoute serves the bridge at its OpenAI `/v1/responses` path. The suffix is
 // pure string concatenation, so a `?` terminator parks it in the query string —
 // the HTTP path (and the WebSocket upgrade path derived from the same URL)
-// stays `/v1/responses`, and compaction uses the explicit endpoint overrides.
+// stays `/v1/responses`, and compaction uses the explicit V2 endpoint override.
 function ompCodexBaseUrl(baseUrl: string): string {
   return `${baseUrl}/v1/responses?omniroute-codex=`;
 }
@@ -282,7 +285,12 @@ export async function activateOmp(
         enabled: true,
         api: "openai-codex-responses",
         v2StreamingEnabled: true,
-        endpoint: `${responsesEndpoint}/compact`,
+        // V1 `/responses/compact` is not advertised: the ChatGPT Codex backend
+        // answers it with a plain `message` output (no compaction item), and
+        // pi-agent-core's V1 handler throws "missing compaction item" on that
+        // shape — so the V1 fallback can never succeed. Only V2
+        // (`compaction_trigger` over `/v1/responses`) produces a real
+        // `type:"compaction"` item with `encrypted_content`.
         v2Endpoint: responsesEndpoint,
       },
     };

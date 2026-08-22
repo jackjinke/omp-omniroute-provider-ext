@@ -395,19 +395,22 @@ describe("OMP adapter", () => {
     // OmniRoute's `/v1/responses` for HTTP fetch and the derived WS upgrade.
     expect(new URL(`${model!.baseUrl}/codex/responses`).pathname).toBe("/v1/responses");
   });
-  test("registers OmniRoute Responses endpoints for Codex compaction", async () => {
+  test("registers OmniRoute Responses endpoint for Codex V2-only compaction", async () => {
     const host = new FakeOmpHost();
     await activateOmp(host, isolatedEnv({ OMNIROUTE_BASE_URL: "http://router.test" }), async () => Response.json({
       data: [{ id: "gpt-5.5", owned_by: "codex" }],
     }));
 
+    // V1 `/responses/compact` is not advertised: the ChatGPT Codex backend answers
+    // it with a plain generate response (no compaction item), which pi-agent-core's
+    // V1 handler rejects. Only V2 (`compaction_trigger`) yields a real compaction.
     expect(host.provider?.config.models[0]?.remoteCompaction).toEqual({
       enabled: true,
       api: "openai-codex-responses",
       v2StreamingEnabled: true,
-      endpoint: "http://router.test/v1/responses/compact",
       v2Endpoint: "http://router.test/v1/responses",
     });
+    expect(host.provider?.config.models[0]?.remoteCompaction?.endpoint).toBeUndefined();
   });
   test("reuses main discovery when a subagent activation cannot reach OmniRoute", async () => {
     const environment = isolatedEnv({ OMNIROUTE_BASE_URL: "http://router.test" });
