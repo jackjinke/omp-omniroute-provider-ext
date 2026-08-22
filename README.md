@@ -72,12 +72,12 @@ OMNIROUTE_STARTUP_TIMEOUT_MS='15000'
 API format and reasoning-effort overrides live in `omniroute.yml` in that same agent directory—not in environment variables:
 
 ```yaml
-format: responses # chat_completions (default) or responses
+format: responses # responses (default) or chat_completions
 <model-id>: [low, medium, high, max]
 "*": [low, medium, high, xhigh]
 ```
 
-`responses` uses OpenAI's native Responses API at `/v1/responses` in both Pi and OMP. Omitting `format` keeps Chat Completions behavior.
+`responses` uses OpenAI's native Responses API at `/v1/responses` in both Pi and OMP. Omitting `format` keeps Responses behavior; set `format: chat_completions` to use Chat Completions.
 
 The exact effort entry takes precedence over `*`, then OmniRoute's `effort_tiers`, then the built-in `low,medium,high,xhigh,max` default.
 

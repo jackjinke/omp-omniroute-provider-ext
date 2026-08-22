@@ -58,7 +58,7 @@ function positiveInteger(value: string | undefined, fallback: number): number {
 }
 
 function parseFormat(value: unknown, label: string): OmniRouteApiFormat {
-  if (value === undefined || value === null) return "chat_completions";
+  if (value === undefined || value === null) return "responses";
   if (value === "chat_completions" || value === "responses") return value;
   throw new Error(`${label} must be "chat_completions" or "responses", got ${JSON.stringify(value)}`);
 }
@@ -83,7 +83,7 @@ function readYamlConfig(path: string): Pick<OmniRouteConfig, "format" | "effortO
     source = readFileSync(path, "utf8");
   } catch (error) {
     if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
-      return { format: "chat_completions", effortOverrides: {} };
+      return { format: "responses", effortOverrides: {} };
     }
     throw error;
   }
@@ -94,7 +94,7 @@ function readYamlConfig(path: string): Pick<OmniRouteConfig, "format" | "effortO
   } catch (error) {
     throw new Error(`Invalid OmniRoute config at ${path}: ${error instanceof Error ? error.message : String(error)}`);
   }
-  if (parsed == null) return { format: "chat_completions", effortOverrides: {} };
+  if (parsed == null) return { format: "responses", effortOverrides: {} };
   if (typeof parsed !== "object" || Array.isArray(parsed)) {
     throw new Error(`OmniRoute config at ${path} must be a YAML object keyed by model ID`);
   }
@@ -125,7 +125,7 @@ export function readConfig(
 
   const { format, effortOverrides } = effortConfigPath
     ? readYamlConfig(effortConfigPath)
-    : { format: "chat_completions" as const, effortOverrides: {} };
+    : { format: "responses" as const, effortOverrides: {} };
   return {
     baseUrl: (environment.OMNIROUTE_BASE_URL?.trim() || DEFAULT_BASE_URL).replace(/\/+$/, ""),
     apiKey,

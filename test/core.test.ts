@@ -250,15 +250,15 @@ describe("shared catalog logic", () => {
     expect(readConfig({ OMNIROUTE_API_KEY: "secret" }, join(agentDir, "missing.yml")).effortOverrides).toEqual({});
   });
 
-  test("reads the API format from YAML, defaulting to chat_completions", () => {
+  test("reads the API format from YAML, defaulting to responses", () => {
     const agentDir = mkdtempSync(join(tmpdir(), "omniroute-format-"));
     const configPath = join(agentDir, "omniroute.yml");
 
-    expect(readConfig({ OMNIROUTE_API_KEY: "secret" }, configPath).format).toBe("chat_completions");
+    expect(readConfig({ OMNIROUTE_API_KEY: "secret" }, configPath).format).toBe("responses");
 
-    writeFileSync(configPath, "format: responses\ncombo/custom: [low, high]\n");
+    writeFileSync(configPath, "format: chat_completions\ncombo/custom: [low, high]\n");
     const config = readConfig({ OMNIROUTE_API_KEY: "secret" }, configPath);
-    expect(config.format).toBe("responses");
+    expect(config.format).toBe("chat_completions");
     expect(config.effortOverrides).toEqual({ "combo/custom": ["low", "high"] });
 
     writeFileSync(configPath, "format: completions\n");
@@ -344,7 +344,7 @@ describe("OMP adapter", () => {
     expect(host.provider?.name).toBe("omniroute");
     expect(host.provider?.config.baseUrl).toBe("http://router.test/v1");
     expect(host.provider?.config.apiKey).toBe("secret");
-    expect(host.provider?.config.api).toBe("omniroute-openai-completions");
+    expect(host.provider?.config.api).toBe("omniroute-openai-responses");
     expect(host.provider?.config.models.map(model => model.id)).toEqual(["any/model"]);
   });
   test("keeps the catalog model name immediately after startup binding", async () => {
@@ -576,9 +576,11 @@ describe("OMP adapter", () => {
     expect(context.model?.name).toBe("primary-auto▸vendor/first");
   });
 
-  test("suppresses the keepalive thinking frame while forwarding real output", async () => {
+  test("suppresses the Chat Completions keepalive while forwarding real output", async () => {
+    const agentDir = mkdtempSync(join(tmpdir(), "omniroute-omp-chat-keepalive-"));
+    writeFileSync(join(agentDir, "omniroute.yml"), "format: chat_completions\n");
     const host = new FakeOmpHost();
-    await activateOmp(host, isolatedEnv(), async () => Response.json({ data: [{ id: "combo/coding", owned_by: "combo" }] }));
+    await activateOmp(host, isolatedEnv({ PI_CODING_AGENT_DIR: agentDir }), async () => Response.json({ data: [{ id: "combo/coding", owned_by: "combo" }] }));
     const context = fakeContext({ id: "combo/coding", name: "combo/coding" });
     host.emit("session_start", context);
 
@@ -700,7 +702,7 @@ describe("OMP adapter", () => {
     const model = {
       ...host.provider!.config.models[0],
       provider: "omniroute",
-      api: "omniroute-openai-completions",
+      api: "omniroute-openai-responses",
       baseUrl: "http://router.test/v1",
     } as never;
     const events = stream(model, { messages: [{ role: "user", content: "hello", timestamp: Date.now() }] } as never, {
@@ -713,7 +715,7 @@ describe("OMP adapter", () => {
     });
     for await (const _event of events) { /* consume the provider stream */ }
 
-    expect(requestBody?.reasoning_effort).toBe("max");
+    expect(requestBody?.reasoning).toMatchObject({ effort: "max" });
   });
 
   test("uses OMP's live thinking level when custom API options omit reasoning", async () => {
@@ -727,7 +729,7 @@ describe("OMP adapter", () => {
     const model = {
       ...host.provider!.config.models[0],
       provider: "omniroute",
-      api: "omniroute-openai-completions",
+      api: "omniroute-openai-responses",
       baseUrl: "http://router.test/v1",
     } as never;
     const events = host.provider!.config.streamSimple!(model, {
@@ -741,7 +743,7 @@ describe("OMP adapter", () => {
     });
     for await (const _event of events) { /* consume the provider stream */ }
 
-    expect(requestBody?.reasoning_effort).toBe("high");
+    expect(requestBody?.reasoning).toMatchObject({ effort: "high" });
   });
 
   test("injects the live effort into every discovered model payload after provider shaping", async () => {
@@ -757,11 +759,11 @@ describe("OMP adapter", () => {
 
     expect(await host.emitBeforeProviderRequest({ model: "first/model", messages: [] }, context)).toMatchObject({
       model: "first/model",
-      reasoning_effort: "xhigh",
+      reasoning: { effort: "xhigh" },
     });
     expect(await host.emitBeforeProviderRequest({ model: "second/model", messages: [] }, context)).toMatchObject({
       model: "second/model",
-      reasoning_effort: "xhigh",
+      reasoning: { effort: "xhigh" },
     });
   });
 
@@ -1017,16 +1019,16 @@ describe("Pi adapter", () => {
       }),
     );
 
-    expect(host.provider?.config.api).toBe("openai-completions");
+    expect(host.provider?.config.api).toBe("openai-responses");
     expect(host.provider?.config.models[0]).toMatchObject({
       id: "combo/coding",
       thinkingLevelMap: { low: "low", medium: "medium", high: "high", max: "max" },
     });
   });
 
-  test("registers native Responses with Pi", async () => {
+  test("allows Chat Completions with Pi", async () => {
     const agentDir = mkdtempSync(join(tmpdir(), "omniroute-pi-format-"));
-    writeFileSync(join(agentDir, "omniroute.yml"), "format: responses\n");
+    writeFileSync(join(agentDir, "omniroute.yml"), "format: chat_completions\n");
     const host = new FakePiHost();
     await activatePi(
       host,
@@ -1034,6 +1036,6 @@ describe("Pi adapter", () => {
       async () => Response.json({ data: [{ id: "combo/coding", owned_by: "combo" }] }),
     );
 
-    expect(host.provider?.config.api).toBe("openai-responses");
+    expect(host.provider?.config.api).toBe("openai-completions");
   });
 });
