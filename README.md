@@ -8,7 +8,7 @@ OmniRoute provider extension for OMP 17.0.5+. Pi 0.80.10+ is also supported.
 - Uses each entry's `capabilities.effort_tiers` when OmniRoute supplies it.
 - Otherwise exposes `low`, `medium`, `high`, `xhigh`, and `max`; override per entry in `omniroute.yml`.
 - OMP uses catalog model names immediately at startup. Combo entries append a differing routed model ID to that name; direct models stay plain in both API formats.
-- Direct `owned_by: codex` entries use OMP's native Codex Responses transport, including fast mode, WebSockets, and remote compaction V1 and V2.
+- Direct `owned_by: codex` entries use OMP's native Codex Responses transport over SSE, including fast mode and remote V2 compaction; WebSockets are disabled for OmniRoute.
 - Drops OmniRoute's synthetic slow-start keepalive frames so they never surface as thinking text or as a routed model named `omniroute`. The keepalive still does its job: the early HTTP commit that keeps the connection alive is untouched.
 - Logs a warning and lets the host continue when startup discovery fails.
 

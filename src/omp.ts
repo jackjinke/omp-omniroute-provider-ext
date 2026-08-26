@@ -32,6 +32,7 @@ interface OmpRoutableModel {
 interface OmpProviderModel extends OmniRouteModel {
   api?: "openai-codex-responses";
   baseUrl?: string;
+  preferWebsockets?: false;
   remoteCompaction?: {
     enabled: true;
     api: "openai-codex-responses";
@@ -281,6 +282,7 @@ export async function activateOmp(
       ...model,
       api: "openai-codex-responses",
       baseUrl: ompCodexBaseUrl(config.baseUrl),
+      preferWebsockets: false,
       remoteCompaction: {
         enabled: true,
         api: "openai-codex-responses",

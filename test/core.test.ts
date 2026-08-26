@@ -15,6 +15,7 @@ interface RegisteredProvider {
     name?: string;
     api?: string;
     baseUrl?: string;
+    preferWebsockets?: boolean;
     remoteCompaction?: {
       enabled?: boolean;
       api?: string;
@@ -371,6 +372,7 @@ describe("OMP adapter", () => {
       id: "gpt-5.5",
       name: "GPT-5.5 Codex",
       api: "openai-codex-responses",
+      preferWebsockets: false,
       remoteCompaction: {
         enabled: true,
         api: "openai-codex-responses",
@@ -379,6 +381,7 @@ describe("OMP adapter", () => {
     });
     expect(host.provider?.config.models[1]).toMatchObject({ id: "combo/coding", name: "Coding Router" });
     expect(host.provider?.config.models[1]?.api).toBeUndefined();
+    expect(host.provider?.config.models[1]?.preferWebsockets).toBeUndefined();
     expect(host.provider?.config.models[1]?.remoteCompaction).toBeUndefined();
   });
   test("parks pi-ai's Codex URL suffix in the query for direct Codex models", async () => {
@@ -391,8 +394,8 @@ describe("OMP adapter", () => {
     expect(model?.api).toBe("openai-codex-responses");
     expect(model?.baseUrl).toBe("http://router.test/v1/responses?omniroute-codex=");
     // pi-ai appends `/codex/responses` to any non-Codex base URL; the `?`
-    // terminator parks that suffix in the query so the path stays
-    // OmniRoute's `/v1/responses` for HTTP fetch and the derived WS upgrade.
+    // terminator parks that suffix in the query so the SSE path stays
+    // OmniRoute's `/v1/responses`.
     expect(new URL(`${model!.baseUrl}/codex/responses`).pathname).toBe("/v1/responses");
   });
   test("registers OmniRoute Responses endpoint for Codex V2-only compaction", async () => {
