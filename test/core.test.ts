@@ -63,13 +63,23 @@ class FakeOmpHost implements OmpExtensionAPI {
 }
 
 
+interface FakeContextModel {
+  id: string;
+  name: string;
+  reasoning?: boolean;
+  input?: ("text" | "image")[];
+  supportsTools?: boolean;
+  thinking?: unknown;
+  compat?: Record<string, unknown>;
+}
+
 interface FakeContext {
-  model?: { id: string; name: string };
+  model?: FakeContextModel;
   hasUI: boolean;
   statuses: Array<[string, string | undefined]>;
   ui: { setStatus(key: string, text: string | undefined): void };
 }
-function fakeContext(model?: { id: string; name: string }): FakeContext {
+function fakeContext(model?: FakeContextModel): FakeContext {
   const statuses: Array<[string, string | undefined]> = [];
   return { model, hasUI: true, statuses, ui: { setStatus: (key, text) => statuses.push([key, text]) } };
 }
@@ -359,6 +369,32 @@ describe("OMP adapter", () => {
     host.emit("session_start", context);
     expect(context.model?.name).toBe("Coding Router");
   });
+  test("hydrates discovered capabilities onto the startup-bound model", async () => {
+    const host = new FakeOmpHost();
+    await activateOmp(host, isolatedEnv(), async () => Response.json({
+      data: [{
+        id: "vision/model",
+        capabilities: { reasoning: true, tool_calling: true, vision: true },
+      }],
+    }));
+    const context = fakeContext({
+      id: "vision/model",
+      name: "vision/model",
+      reasoning: false,
+      input: ["text"],
+      supportsTools: false,
+    });
+
+    host.emit("session_start", context);
+
+    expect(context.model).toMatchObject({
+      reasoning: true,
+      input: ["text", "image"],
+      supportsTools: true,
+      thinking: { mode: "effort" },
+      compat: { supportsReasoningEffort: true },
+    });
+  });
   test("uses native Codex transport and remote compaction only for direct Codex models", async () => {
     const host = new FakeOmpHost();
     await activateOmp(host, isolatedEnv(), async () => Response.json({
@@ -540,7 +576,7 @@ describe("OMP adapter", () => {
     if (reroutedEvents) for await (const _event of reroutedEvents) { /* consume the provider stream */ }
     expect(context.model?.name).toBe("combo/coding▸vendor/different-model");
   });
-  test("normalizes missing compatibility for the custom OMP API", async () => {
+  test("hydrates compatibility for the custom OMP API", async () => {
     const host = new FakeOmpHost();
     await activateOmp(host, isolatedEnv(), async () => Response.json({
       data: [{ id: "combo/coding", owned_by: "combo" }],
@@ -554,7 +590,7 @@ describe("OMP adapter", () => {
 
     host.emit("session_start", context);
 
-    expect(model.compat).toEqual({});
+    expect(model.compat).toEqual(host.provider!.config.models[0]!.compat);
   });
   test("uses owned_by metadata instead of model-id prefix for combo persistence", async () => {
     const host = new FakeOmpHost();

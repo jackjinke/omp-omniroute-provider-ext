@@ -125,21 +125,24 @@ function ompCodexBaseUrl(baseUrl: string): string {
  */
 function createOmpRouteStream(
   api: OmpExtensionAPI,
-  modelNames: Map<string, string>,
+  models: Map<string, OmpProviderModel>,
   comboIds: Set<string>,
   format: OmniRouteApiFormat,
 ): typeof streamOpenAICompletions {
   const routeNames = new Map<string, string>();
   const bindRouteName = (model: OmpRoutableModel | undefined): string | undefined => {
-    if (!model || !modelNames.has(model.id)) return undefined;
-    // pi-catalog cannot resolve compatibility defaults for extension-defined API
-    // identifiers, while provider paths still require an object.
-    model.compat ??= {};
+    if (!model) return undefined;
+    const catalogModel = models.get(model.id);
+    if (!catalogModel) return undefined;
+    // OMP can bind the configured startup model before extension providers are
+    // registered. Refresh every catalog field on that provisional object so
+    // capability-dependent tools see the same model as a later manual switch.
+    Object.assign(model, catalogModel);
     const modelId = model.id;
     Object.defineProperty(model, "name", {
       configurable: true,
       enumerable: true,
-      get: () => routeNames.get(modelId) ?? modelNames.get(modelId) ?? modelId,
+      get: () => routeNames.get(modelId) ?? catalogModel.name,
       set: () => {},
     });
     return modelId;
@@ -160,7 +163,7 @@ function createOmpRouteStream(
     // route, so its status line must stay plain even if the router renames it.
     const comboModel = requestedModel && comboIds.has(requestedModel) ? requestedModel : undefined;
     const updateRouteName = (routedModel: string) => {
-      routeNames.set(comboModel!, resolvedRouteStatus(modelNames.get(comboModel!) ?? comboModel!, routedModel));
+      routeNames.set(comboModel!, resolvedRouteStatus(models.get(comboModel!)?.name ?? comboModel!, routedModel));
     };
     const simpleOptions = options as OpenAICompletionsOptions & {
       reasoning?: ReasoningEffort;
@@ -274,7 +277,6 @@ export async function activateOmp(
   const modelIds = new Set(models.map(model => model.id));
   const comboIds = new Set(models.filter(model => model.isCombo).map(model => model.id));
   const codexModelIds = new Set(models.filter(model => model.isCodex).map(model => model.id));
-  const modelNames = new Map(models.map(model => [model.id, model.name]));
   const ompModels: OmpProviderModel[] = models.map(model => {
     if (!model.isCodex) return { ...model };
     const responsesEndpoint = `${config.baseUrl}/v1/responses`;
@@ -297,6 +299,7 @@ export async function activateOmp(
       },
     };
   });
+  const ompModelsById = new Map(ompModels.map(model => [model.id, model]));
   api.on("before_provider_request", event => withReasoningEffort(
     event.payload,
     modelIds,
@@ -309,7 +312,7 @@ export async function activateOmp(
     baseUrl: `${config.baseUrl}/v1`,
     apiKey: config.apiKey,
     api: HOST_API_BY_FORMAT[config.format],
-    streamSimple: createOmpRouteStream(api, modelNames, comboIds, config.format),
+    streamSimple: createOmpRouteStream(api, ompModelsById, comboIds, config.format),
     models: ompModels,
   });
 }

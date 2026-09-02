@@ -1,6 +1,6 @@
 # omp-omniroute-provider-ext
 
-OmniRoute provider extension for OMP 17.0.5+. Pi 0.80.10+ is also supported.
+OmniRoute provider extension for OMP 17.2.2+. Pi 0.80.10+ is also supported.
 
 ## Supported
 
@@ -13,6 +13,8 @@ OmniRoute provider extension for OMP 17.0.5+. Pi 0.80.10+ is also supported.
 - Logs a warning and lets the host continue when startup discovery fails.
 
 Shared OmniRoute logic lives in `src/shared.ts`. Host-specific behavior lives in `src/pi.ts` and `src/omp.ts`.
+
+OMP 17.2.2 is the minimum because earlier versions do not load extension-registered providers in `omp commit`.
 
 ## Install
 
