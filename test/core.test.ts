@@ -34,6 +34,8 @@ class FakeOmpHost implements OmpExtensionAPI {
   provider?: { name: string; config: RegisteredProvider };
   thinkingLevel?: "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
   handlers = new Map<string, FakeOmpHandler[]>();
+  modelSets: FakeContextModel[] = [];
+
 
   registerProvider(name: string, config: RegisteredProvider): void {
     this.provider = { name, config };
@@ -42,6 +44,11 @@ class FakeOmpHost implements OmpExtensionAPI {
   getThinkingLevel(): "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | undefined {
     return this.thinkingLevel;
   }
+  async setModel(model: FakeContextModel): Promise<boolean> {
+    this.modelSets.push(model);
+    return true;
+  }
+
 
   on(event: string, handler: FakeOmpHandler): void {
     const handlers = this.handlers.get(event) ?? [];
@@ -52,6 +59,10 @@ class FakeOmpHost implements OmpExtensionAPI {
   emit(event: string, context: FakeContext): void {
     for (const handler of this.handlers.get(event) ?? []) handler({}, context);
   }
+  async emitAsync(event: string, context: FakeContext): Promise<void> {
+    for (const handler of this.handlers.get(event) ?? []) await handler({}, context);
+  }
+
   async emitBeforeProviderRequest(payload: unknown, context: FakeContext): Promise<unknown> {
     let current = payload;
     for (const handler of this.handlers.get("before_provider_request") ?? []) {
@@ -369,7 +380,7 @@ describe("OMP adapter", () => {
     host.emit("session_start", context);
     expect(context.model?.name).toBe("Coding Router");
   });
-  test("hydrates discovered capabilities onto the startup-bound model", async () => {
+  test("rebinds the hydrated startup model so OMP reconciles native capabilities", async () => {
     const host = new FakeOmpHost();
     await activateOmp(host, isolatedEnv(), async () => Response.json({
       data: [{
@@ -377,15 +388,16 @@ describe("OMP adapter", () => {
         capabilities: { reasoning: true, tool_calling: true, vision: true },
       }],
     }));
-    const context = fakeContext({
+    const startupModel: FakeContextModel = {
       id: "vision/model",
       name: "vision/model",
       reasoning: false,
       input: ["text"],
       supportsTools: false,
-    });
+    };
+    const context = fakeContext(startupModel);
 
-    host.emit("session_start", context);
+    await host.emitAsync("session_start", context);
 
     expect(context.model).toMatchObject({
       reasoning: true,
@@ -394,6 +406,8 @@ describe("OMP adapter", () => {
       thinking: { mode: "effort" },
       compat: { supportsReasoningEffort: true },
     });
+    expect(host.modelSets).toHaveLength(1);
+    expect(host.modelSets[0]).toBe(startupModel);
   });
   test("uses native Codex transport and remote compaction only for direct Codex models", async () => {
     const host = new FakeOmpHost();

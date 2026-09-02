@@ -20,6 +20,7 @@ type ReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 export interface OmpExtensionAPI {
   registerProvider(name: string, config: OmpProviderConfig): void;
   getThinkingLevel(): ReasoningEffort | undefined;
+  setModel(model: OmpRoutableModel): Promise<boolean>;
   on(event: string, handler: (event: { payload?: unknown }, context: OmpContext) => unknown): void;
 }
 
@@ -151,8 +152,17 @@ function createOmpRouteStream(
     routeNames.clear();
     bindRouteName(context.model);
   };
+  const rebindStartupModel = async (_event: { payload?: unknown }, context: OmpContext): Promise<void> => {
+    const model = context.model;
+    routeNames.clear();
+    if (!model || bindRouteName(model) === undefined) return;
+    // OMP builds model-dependent tools before draining extension provider
+    // registrations. Re-selecting the now-hydrated model through the host's
+    // supported seam reconciles native image input before the first turn.
+    await api.setModel(model);
+  };
 
-  api.on("session_start", resetRouteState);
+  api.on("session_start", rebindStartupModel);
   api.on("session_switch", resetRouteState);
 
   return (model, context, options) => {

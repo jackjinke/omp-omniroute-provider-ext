@@ -32,6 +32,9 @@ try {
         providerRegistrations++;
       },
       getThinkingLevel: () => "high",
+      async setModel() {
+        return true;
+      },
       on() {},
     },
     {
