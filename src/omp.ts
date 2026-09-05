@@ -8,6 +8,7 @@ import {
   extractOmniRouteModel,
   omniRouteConfigPath,
   resolvedRouteStatus,
+  shouldUseCodexTransport,
   stripKeepaliveFrames,
   tryDiscoverModels,
   type OmniRouteApiFormat,
@@ -286,9 +287,11 @@ export async function activateOmp(
   const { config, catalog: { models } } = discovery;
   const modelIds = new Set(models.map(model => model.id));
   const comboIds = new Set(models.filter(model => model.isCombo).map(model => model.id));
-  const codexModelIds = new Set(models.filter(model => model.isCodex).map(model => model.id));
+  const codexModelIds = new Set(
+    models.filter(model => shouldUseCodexTransport(model, config.codexTransport)).map(model => model.id),
+  );
   const ompModels: OmpProviderModel[] = models.map(model => {
-    if (!model.isCodex) return { ...model };
+    if (!codexModelIds.has(model.id)) return { ...model };
     const responsesEndpoint = `${config.baseUrl}/v1/responses`;
     return {
       ...model,

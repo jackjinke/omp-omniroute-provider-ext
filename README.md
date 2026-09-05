@@ -4,11 +4,11 @@ OmniRoute provider extension for OMP 17.2.2+. Pi 0.80.10+ is also supported.
 
 ## Supported
 
-- Loads every `/v1/models` entry before startup model resolution; owner metadata only enables combo routing status and direct Codex transport features.
+- Loads every `/v1/models` entry before startup model resolution; owner metadata enables combo routing status and Codex transport features.
 - Uses each entry's `capabilities.effort_tiers` when OmniRoute supplies it.
 - Otherwise exposes `low`, `medium`, `high`, `xhigh`, and `max`; override per entry in `omniroute.yml`.
 - OMP uses catalog model names immediately at startup. Combo entries append a differing routed model ID to that name; direct models stay plain in both API formats.
-- Direct `owned_by: codex` entries use OMP's native Codex Responses transport over SSE, including fast mode and remote V2 compaction; WebSockets are disabled for OmniRoute.
+- OMP's native Codex Responses transport applies to direct `owned_by: codex` entries, model IDs starting with `gpt-` or containing `/gpt-`, and IDs listed in `codex_transport`. This uses SSE with fast mode, encrypted-reasoning replay, and remote V2 compaction; WebSockets are disabled for OmniRoute.
 - Drops OmniRoute's synthetic slow-start keepalive frames so they never surface as thinking text or as a routed model named `omniroute`. The keepalive still does its job: the early HTTP commit that keeps the connection alive is untouched.
 - Logs a warning and lets the host continue when startup discovery fails.
 
@@ -71,15 +71,18 @@ Environment settings can be exported in your shell or placed in the host agent d
 OMNIROUTE_STARTUP_TIMEOUT_MS='15000'
 ```
 
-API format and reasoning-effort overrides live in `omniroute.yml` in that same agent directory—not in environment variables:
+API format, Codex transport selection, and reasoning-effort overrides live in `omniroute.yml` in that same agent directory—not in environment variables:
 
 ```yaml
 format: responses # responses (default) or chat_completions
+codex_transport: [combo/coding]
 <model-id>: [low, medium, high, max]
 "*": [low, medium, high, xhigh]
 ```
 
 `responses` uses OpenAI's native Responses API at `/v1/responses` in both Pi and OMP. Omitting `format` keeps Responses behavior; set `format: chat_completions` to use Chat Completions.
+
+`codex_transport` is an OMP-only list of exact catalog model IDs, primarily intended for combos whose members are Codex-compatible. Codex-owned entries and IDs starting with `gpt-` or containing `/gpt-` use the Codex transport automatically. For a combo, OmniRoute still chooses the member for each attempt; encrypted reasoning and real Codex compaction are guaranteed only when routing stays on Codex-compatible members. This setting does not enable OMP Code Mode.
 
 The exact effort entry takes precedence over `*`, then OmniRoute's `effort_tiers`, then the built-in `low,medium,high,xhigh,max` default.
 

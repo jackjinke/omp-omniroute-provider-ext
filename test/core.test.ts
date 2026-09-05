@@ -287,6 +287,16 @@ describe("shared catalog logic", () => {
     expect(() => readConfig({ OMNIROUTE_API_KEY: "secret" }, configPath)).toThrow('"chat_completions" or "responses"');
   });
 
+  test("reads explicit Codex transport model IDs without treating them as efforts", () => {
+    const agentDir = mkdtempSync(join(tmpdir(), "omniroute-codex-transport-"));
+    const configPath = join(agentDir, "omniroute.yml");
+    writeFileSync(configPath, "codex_transport: [combo/coding, Combo/Coding, cx/custom]\ncombo/coding: [high]\n");
+
+    const config = readConfig({ OMNIROUTE_API_KEY: "secret" }, configPath);
+    expect(config.codexTransport).toEqual(["combo/coding", "cx/custom"]);
+    expect(config.effortOverrides).toEqual({ "combo/coding": ["high"] });
+  });
+
   test("rejects invalid catalogs and YAML effort overrides", () => {
     expect(() => normalizeCatalog({}, { effortOverrides: {} })).toThrow("data[]");
     expect(() => normalizeCatalog({ data: [] }, { effortOverrides: {} })).toThrow("no usable models");
@@ -409,7 +419,7 @@ describe("OMP adapter", () => {
     expect(host.modelSets).toHaveLength(1);
     expect(host.modelSets[0]).toBe(startupModel);
   });
-  test("uses native Codex transport and remote compaction only for direct Codex models", async () => {
+  test("uses native Codex transport for Codex-owned models while ordinary combos stay generic", async () => {
     const host = new FakeOmpHost();
     await activateOmp(host, isolatedEnv(), async () => Response.json({
       data: [
@@ -434,6 +444,67 @@ describe("OMP adapter", () => {
     expect(host.provider?.config.models[1]?.preferWebsockets).toBeUndefined();
     expect(host.provider?.config.models[1]?.remoteCompaction).toBeUndefined();
   });
+
+  test("uses Codex transport for explicitly marked combos", async () => {
+    const agentDir = mkdtempSync(join(tmpdir(), "omniroute-omp-marked-codex-"));
+    writeFileSync(join(agentDir, "omniroute.yml"), "codex_transport: [combo/coding]\n");
+    const host = new FakeOmpHost();
+    await activateOmp(host, isolatedEnv({
+      OMNIROUTE_BASE_URL: "http://router.test",
+      PI_CODING_AGENT_DIR: agentDir,
+    }), async () => Response.json({
+      data: [{ id: "combo/coding", name: "Coding Router", owned_by: "combo" }],
+    }));
+
+    expect(host.provider?.config.models[0]).toMatchObject({
+      id: "combo/coding",
+      isCombo: true,
+      api: "openai-codex-responses",
+      baseUrl: "http://router.test/v1/responses?omniroute-codex=",
+      preferWebsockets: false,
+      remoteCompaction: {
+        enabled: true,
+        api: "openai-codex-responses",
+        v2StreamingEnabled: true,
+        v2Endpoint: "http://router.test/v1/responses",
+      },
+    });
+  });
+
+  test("uses Codex transport for bare and prefixed GPT model IDs", async () => {
+    const host = new FakeOmpHost();
+    await activateOmp(host, isolatedEnv(), async () => Response.json({
+      data: [
+        { id: "gpt-5.5", owned_by: "openai" },
+        { id: "cx/gpt-5.6", owned_by: "openai-compatible" },
+        { id: "combo/gpt-coding", owned_by: "combo" },
+        { id: "openai/gptx-5", owned_by: "openai-compatible" },
+      ],
+    }));
+
+    expect(host.provider?.config.models.map(model => model.api ?? "generic")).toEqual([
+      "openai-codex-responses",
+      "openai-codex-responses",
+      "openai-codex-responses",
+      "generic",
+    ]);
+  });
+  test("shapes a marked combo's effort as Responses even in chat-completions mode", async () => {
+    const agentDir = mkdtempSync(join(tmpdir(), "omniroute-omp-marked-effort-"));
+    writeFileSync(join(agentDir, "omniroute.yml"), "format: chat_completions\ncodex_transport: [combo/coding]\n");
+    const host = new FakeOmpHost();
+    host.thinkingLevel = "high";
+    await activateOmp(host, isolatedEnv({ PI_CODING_AGENT_DIR: agentDir }), async () => Response.json({
+      data: [{ id: "combo/coding", owned_by: "combo", capabilities: { reasoning: true } }],
+    }));
+
+    expect(await host.emitBeforeProviderRequest({ model: "combo/coding", messages: [] }, fakeContext())).toEqual({
+      model: "combo/coding",
+      messages: [],
+      reasoning: { effort: "high" },
+    });
+  });
+
   test("parks pi-ai's Codex URL suffix in the query for direct Codex models", async () => {
     const host = new FakeOmpHost();
     await activateOmp(host, isolatedEnv({ OMNIROUTE_BASE_URL: "http://router.test" }), async () => Response.json({

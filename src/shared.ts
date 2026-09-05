@@ -9,9 +9,9 @@ export const DEFAULT_EFFORTS = ["low", "medium", "high", "xhigh", "max"] as cons
 export interface OmniRouteModel {
   id: string;
   name: string;
-  /** Explicit `/v1/models` ownership; model-id prefixes are user-defined and unreliable. */
+  /** Explicit `/v1/models` ownership; combo routing status is derived from this marker. */
   isCombo: boolean;
-  /** Direct Codex ownership enables OMP's native Codex transport features. */
+  /** Direct Codex ownership; OMP combines this with config and GPT-ID detection. */
   isCodex: boolean;
   reasoning: boolean;
   thinking?: { mode: "effort"; efforts: string[]; effortMap: Record<string, string> };
@@ -41,6 +41,8 @@ export interface OmniRouteConfig {
   timeoutMs: number;
   format: OmniRouteApiFormat;
   effortOverrides: Record<string, string[]>;
+  /** OMP model IDs explicitly opted into the native Codex transport. */
+  codexTransport: string[];
 }
 
 export interface OmniRouteDiscovery {
@@ -77,13 +79,23 @@ function parseEfforts(value: unknown, label: string): string[] {
   return [...new Set(efforts)];
 }
 
-function readYamlConfig(path: string): Pick<OmniRouteConfig, "format" | "effortOverrides"> {
+function parseCodexTransport(value: unknown, label: string): string[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) throw new Error(`${label} must be an array of model IDs`);
+  const ids = value.map(id => {
+    if (typeof id !== "string") throw new Error(`${label} must contain only model ID strings`);
+    return id.trim().toLowerCase();
+  }).filter(Boolean);
+  return [...new Set(ids)];
+}
+
+function readYamlConfig(path: string): Pick<OmniRouteConfig, "format" | "effortOverrides" | "codexTransport"> {
   let source: string;
   try {
     source = readFileSync(path, "utf8");
   } catch (error) {
     if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
-      return { format: "responses", effortOverrides: {} };
+      return { format: "responses", effortOverrides: {}, codexTransport: [] };
     }
     throw error;
   }
@@ -94,13 +106,14 @@ function readYamlConfig(path: string): Pick<OmniRouteConfig, "format" | "effortO
   } catch (error) {
     throw new Error(`Invalid OmniRoute config at ${path}: ${error instanceof Error ? error.message : String(error)}`);
   }
-  if (parsed == null) return { format: "responses", effortOverrides: {} };
+  if (parsed == null) return { format: "responses", effortOverrides: {}, codexTransport: [] };
   if (typeof parsed !== "object" || Array.isArray(parsed)) {
     throw new Error(`OmniRoute config at ${path} must be a YAML object keyed by model ID`);
   }
-  const { format, ...modelEfforts } = parsed as Record<string, unknown>;
+  const { format, codex_transport, ...modelEfforts } = parsed as Record<string, unknown>;
   return {
     format: parseFormat(format, `${path}[format]`),
+    codexTransport: parseCodexTransport(codex_transport, `${path}[codex_transport]`),
     effortOverrides: Object.fromEntries(
       Object.entries(modelEfforts).map(([modelId, efforts]) => [modelId, parseEfforts(efforts, `${path}[${modelId}]`)]),
     ),
@@ -123,15 +136,16 @@ export function readConfig(
   const apiKey = environment.OMNIROUTE_API_KEY?.trim();
   if (!apiKey) throw new Error("Missing OmniRoute API key in OMNIROUTE_API_KEY");
 
-  const { format, effortOverrides } = effortConfigPath
+  const { format, effortOverrides, codexTransport } = effortConfigPath
     ? readYamlConfig(effortConfigPath)
-    : { format: "responses" as const, effortOverrides: {} };
+    : { format: "responses" as const, effortOverrides: {}, codexTransport: [] };
   return {
     baseUrl: (environment.OMNIROUTE_BASE_URL?.trim() || DEFAULT_BASE_URL).replace(/\/+$/, ""),
     apiKey,
     timeoutMs: positiveInteger(environment.OMNIROUTE_STARTUP_TIMEOUT_MS, 15_000),
     format,
     effortOverrides,
+    codexTransport,
   };
 }
 
@@ -233,6 +247,14 @@ export function normalizeCatalog(
 
   if (models.length === 0) throw new Error("OmniRoute /v1/models returned no usable models");
   return { models };
+}
+
+export function shouldUseCodexTransport(
+  model: Pick<OmniRouteModel, "id" | "isCodex">,
+  configuredModelIds: readonly string[],
+): boolean {
+  const id = model.id.trim().toLowerCase();
+  return model.isCodex || configuredModelIds.includes(id) || id.startsWith("gpt-") || id.includes("/gpt-");
 }
 
 export async function discoverModels(
