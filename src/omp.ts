@@ -28,6 +28,7 @@ export interface OmpExtensionAPI {
 interface OmpRoutableModel {
   id: string;
   name: string;
+  provider?: string;
   compat?: Record<string, unknown>;
 }
 
@@ -134,6 +135,9 @@ function createOmpRouteStream(
   const routeNames = new Map<string, string>();
   const bindRouteName = (model: OmpRoutableModel | undefined): string | undefined => {
     if (!model) return undefined;
+    // Session models from other providers can share ids with OmniRoute routes;
+    // rebinding those would graft OmniRoute transport fields onto foreign models.
+    if (model.provider !== undefined && model.provider !== "omniroute") return undefined;
     const catalogModel = models.get(model.id);
     if (!catalogModel) return undefined;
     // OMP can bind the configured startup model before extension providers are

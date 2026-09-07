@@ -77,6 +77,8 @@ class FakeOmpHost implements OmpExtensionAPI {
 interface FakeContextModel {
   id: string;
   name: string;
+  provider?: string;
+  baseUrl?: string;
   reasoning?: boolean;
   input?: ("text" | "image")[];
   supportsTools?: boolean;
@@ -418,6 +420,27 @@ describe("OMP adapter", () => {
     });
     expect(host.modelSets).toHaveLength(1);
     expect(host.modelSets[0]).toBe(startupModel);
+  });
+  test("leaves another provider's session model untouched even when ids collide", async () => {
+    const host = new FakeOmpHost();
+    await activateOmp(host, isolatedEnv(), async () => Response.json({
+      data: [{ id: "gpt-5.6-sol", name: "GPT 5.6 Sol", owned_by: "codex" }],
+    }));
+    const foreignModel: FakeContextModel = {
+      id: "gpt-5.6-sol",
+      name: "gpt-5.6-sol",
+      provider: "cliproxyapi",
+      baseUrl: "http://cliproxyapi.example/v1/responses?cliproxyapi-codex=",
+    };
+    const context = fakeContext(foreignModel);
+
+    await host.emitAsync("session_start", context);
+
+    expect(context.model).toMatchObject({
+      provider: "cliproxyapi",
+      baseUrl: "http://cliproxyapi.example/v1/responses?cliproxyapi-codex=",
+    });
+    expect(host.modelSets).toHaveLength(0);
   });
   test("uses native Codex transport for Codex-owned models while ordinary combos stay generic", async () => {
     const host = new FakeOmpHost();
